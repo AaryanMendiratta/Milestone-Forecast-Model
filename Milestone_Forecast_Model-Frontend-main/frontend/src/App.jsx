@@ -8,14 +8,36 @@ import Calculations from './Calculations.jsx';
 import ExecutiveSummary from './ExecutiveSummary.jsx';
 import MonteCarlo from './MonteCarlo.jsx';
 import { ScenarioToolbar } from './scenariotoolbar.jsx';
+import defaultData from './defaultData.js';
 import './App.css';
 
 // ─── Types / Defaults ───────────────────────────────────────────────
 
-const defaultSegments = [];
-
-const defaultEndpoints = [];
 const STORAGE_SCHEMA_VERSION = 'hard-reset-v1';
+const baseDefaults = {
+  currentStep: 1,
+  segments: [],
+  timeline: { fromMonth: 'Jan', fromYear: 2024, toMonth: 'Dec', toYear: 2029, granularity: 'monthly' },
+  aceConfig: { primaryEndpointWeighting: true, biomarkerStratification: true, placeboAdjusted: false, rweIntegration: true, safetyDampening: false },
+  scoringWeights: { efficacy: 65, safety: 20, marketAccess: 15, competitiveIntensity: 30 },
+  endpoints: [],
+  monteCarloParams: { marketShareVariance: 12, launchTiming: 3, priceErosionRate: 8, patientPopGrowth: 4, distributionType: 'normal' },
+  monteCarloOutputName: '',
+  configuredMetrics: [],
+  metricData: {},
+  metricsState: { metrics: [], formulaRows: [], metricConfigs: {} },
+  selectedOutputIdx: 0,
+};
+
+const deploymentDefaults = {
+  ...baseDefaults,
+  ...defaultData,
+  timeline: { ...baseDefaults.timeline, ...(defaultData.timeline || {}) },
+  aceConfig: { ...baseDefaults.aceConfig, ...(defaultData.aceConfig || {}) },
+  scoringWeights: { ...baseDefaults.scoringWeights, ...(defaultData.scoringWeights || {}) },
+  monteCarloParams: { ...baseDefaults.monteCarloParams, ...(defaultData.monteCarloParams || {}) },
+  metricsState: { ...baseDefaults.metricsState, ...(defaultData.metricsState || {}) },
+};
 
 // ─── Context ────────────────────────────────────────────────────────
 
@@ -35,13 +57,17 @@ function AppProvider({ children }) {
     localStorage.setItem('milestone_storage_schema', STORAGE_SCHEMA_VERSION);
   }
 
+  function clone(value) {
+    return JSON.parse(JSON.stringify(value));
+  }
+
   // Helper: localStorage-only load (no defaultData rehydration)
   function load(key, fallback) {
     try {
       const saved = localStorage.getItem(key);
       if (saved !== null) return JSON.parse(saved);
     } catch {}
-    return fallback;
+    return clone(fallback);
   }
   function loadStr(key, fallback) {
     const saved = localStorage.getItem(key);
@@ -54,24 +80,24 @@ function AppProvider({ children }) {
   const [currentStep, setCurrentStep] = useState(() => {
     const saved = localStorage.getItem('milestone_currentStep');
     if (saved !== null) return parseInt(saved, 10);
-    return 1;
+    return deploymentDefaults.currentStep;
   });
-  const [segments, setSegments] = useState(() => load('milestone_segments', defaultSegments));
+  const [segments, setSegments] = useState(() => load('milestone_segments', deploymentDefaults.segments));
   const [timeline, setTimeline] = useState(() =>
-    load('milestone_timeline', { fromMonth: 'Jan', fromYear: 2024, toMonth: 'Dec', toYear: 2029, granularity: 'monthly' })
+    load('milestone_timeline', deploymentDefaults.timeline)
   );
   const [aceConfig, setAceConfig] = useState(() =>
-    load('milestone_aceConfig', { primaryEndpointWeighting: true, biomarkerStratification: true, placeboAdjusted: false, rweIntegration: true, safetyDampening: false })
+    load('milestone_aceConfig', deploymentDefaults.aceConfig)
   );
   const [scoringWeights, setScoringWeights] = useState(() =>
-    load('milestone_scoringWeights', { efficacy: 65, safety: 20, marketAccess: 15, competitiveIntensity: 30 })
+    load('milestone_scoringWeights', deploymentDefaults.scoringWeights)
   );
-  const [endpoints, setEndpoints] = useState(() => load('milestone_endpoints', defaultEndpoints));
+  const [endpoints, setEndpoints] = useState(() => load('milestone_endpoints', deploymentDefaults.endpoints));
   const [monteCarloParams, setMonteCarloParams] = useState(() =>
-    load('milestone_monteCarloParams', { marketShareVariance: 12, launchTiming: 3, priceErosionRate: 8, patientPopGrowth: 4, distributionType: 'normal' })
+    load('milestone_monteCarloParams', deploymentDefaults.monteCarloParams)
   );
   const [monteCarloOutputName, setMonteCarloOutputName] = useState(() =>
-    loadStr('milestone_monteCarloOutputName', '')
+    loadStr('milestone_monteCarloOutputName', deploymentDefaults.monteCarloOutputName)
   );
   const [configuredMetrics, setConfiguredMetrics] = useState(() => {
     const rgbColorMap = {
@@ -83,7 +109,7 @@ function AppProvider({ children }) {
     const raw = (() => {
       const saved = localStorage.getItem('milestone_configuredMetrics');
       if (saved !== null) return JSON.parse(saved);
-      return [];
+      return clone(deploymentDefaults.configuredMetrics);
     })();
     // Migration: add rgbColor if missing
     const metrics = raw.map(m => ({
@@ -93,12 +119,12 @@ function AppProvider({ children }) {
     localStorage.setItem('milestone_configuredMetrics', JSON.stringify(metrics));
     return metrics;
   });
-  const [metricData, setMetricData] = useState(() => load('milestone_metricData', {}));
+  const [metricData, setMetricData] = useState(() => load('milestone_metricData', deploymentDefaults.metricData));
   const [metricsState, setMetricsState] = useState(() => {
     const raw = (() => {
       const saved = localStorage.getItem('milestone_metricsState');
       if (saved !== null) return JSON.parse(saved);
-      return { metrics: [], formulaRows: [], metricConfigs: {} };
+      return clone(deploymentDefaults.metricsState);
     })();
     // Migration: Convert old metric objects to metricId in formula items
     if (raw.formulaRows && raw.formulaRows.length > 0) {
@@ -119,7 +145,7 @@ function AppProvider({ children }) {
   const [selectedOutputIdx, setSelectedOutputIdx] = useState(() => {
     const saved = localStorage.getItem('milestone_selectedOutputIdx');
     if (saved !== null) return parseInt(saved, 10);
-    return 0;
+    return deploymentDefaults.selectedOutputIdx;
   });
 
   const addSegment = useCallback((name, type) => {
@@ -272,18 +298,18 @@ export default defaultData;
     localStorage.clear();
     sessionStorage.clear();
     setCurrentPage('model-setup');
-    setCurrentStep(1);
-    setSegments([]);
-    setTimeline({ fromMonth: 'Jan', fromYear: 2024, toMonth: 'Dec', toYear: 2029, granularity: 'monthly' });
-    setAceConfig({ primaryEndpointWeighting: true, biomarkerStratification: true, placeboAdjusted: false, rweIntegration: true, safetyDampening: false });
-    setScoringWeights({ efficacy: 65, safety: 20, marketAccess: 15, competitiveIntensity: 30 });
-    setEndpoints([]);
-    setMonteCarloParams({ marketShareVariance: 12, launchTiming: 3, priceErosionRate: 8, patientPopGrowth: 4, distributionType: 'normal' });
-    setMonteCarloOutputName('');
-    setConfiguredMetrics([]);
-    setMetricData({});
-    setMetricsState({ metrics: [], formulaRows: [], metricConfigs: {} });
-    setSelectedOutputIdx(0);
+    setCurrentStep(deploymentDefaults.currentStep);
+    setSegments(clone(deploymentDefaults.segments));
+    setTimeline(clone(deploymentDefaults.timeline));
+    setAceConfig(clone(deploymentDefaults.aceConfig));
+    setScoringWeights(clone(deploymentDefaults.scoringWeights));
+    setEndpoints(clone(deploymentDefaults.endpoints));
+    setMonteCarloParams(clone(deploymentDefaults.monteCarloParams));
+    setMonteCarloOutputName(deploymentDefaults.monteCarloOutputName);
+    setConfiguredMetrics(clone(deploymentDefaults.configuredMetrics));
+    setMetricData(clone(deploymentDefaults.metricData));
+    setMetricsState(clone(deploymentDefaults.metricsState));
+    setSelectedOutputIdx(deploymentDefaults.selectedOutputIdx);
   }, []);
 
   return (
