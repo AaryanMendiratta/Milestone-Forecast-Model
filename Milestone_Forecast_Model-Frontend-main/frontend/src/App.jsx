@@ -434,18 +434,9 @@ function Sidebar() {
 // ─── Topbar ─────────────────────────────────────────────────────────
 
 function Topbar() {
-  const { exportDefaults } = useApp();
   return (
     <header className="flex items-center justify-between px-7 h-14 flex-shrink-0 bg-surface-low border-b border-border-light">
       <ScenarioToolbar />
-      <button
-        onClick={exportDefaults}
-        className="inline-flex items-center gap-1.5 py-[7px] px-[14px] rounded-sm text-[12px] font-bold border-[1.5px] border-border text-text-soft bg-transparent hover:border-primary hover:text-primary transition-all duration-150"
-        title="Download current state as defaultData.js to use as deployment defaults"
-      >
-        <span className="mi text-[15px]">download</span>
-        Save as Defaults
-      </button>
     </header>
   );
 }
