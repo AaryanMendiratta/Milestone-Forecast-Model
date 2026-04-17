@@ -297,6 +297,7 @@ export default defaultData;
   const resetAllData = useCallback(() => {
     localStorage.clear();
     sessionStorage.clear();
+    localStorage.setItem('milestone_storage_schema', STORAGE_SCHEMA_VERSION);
     setCurrentPage('model-setup');
     setCurrentStep(deploymentDefaults.currentStep);
     setSegments(clone(deploymentDefaults.segments));
