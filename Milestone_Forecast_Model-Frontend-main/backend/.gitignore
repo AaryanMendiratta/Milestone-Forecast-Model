@@ -1,0 +1,30 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.pycache
+
+# Virtual environments
+venv/
+.venv/
+env/
+.env_venv/
+.env.production/
+
+
+# Environment files — never commit secrets
+.env
+.env.local
+.env.*.local
+
+# Runtime data file written by the backend
+ace_data.json
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

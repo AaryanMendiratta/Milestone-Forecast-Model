@@ -1,0 +1,170 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 225 33% 97%;
+    --foreground: 216 18% 11%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 216 18% 11%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 216 18% 11%;
+
+    --primary: 1 63% 45%;
+    --primary-foreground: 0 0% 100%;
+    --primary-dark: 1 65% 34%;
+    --primary-light: 0 82% 95%;
+    --primary-mid: 1 63% 45% / 0.12;
+
+    --secondary: 174 100% 21%;
+    --secondary-foreground: 0 0% 100%;
+
+    --muted: 220 24% 95%;
+    --muted-foreground: 222 6% 49%;
+
+    --accent: 220 24% 95%;
+    --accent-foreground: 216 18% 11%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 229 17% 83%;
+    --border-light: 229 17% 83% / 0.3;
+    --input: 229 17% 83%;
+    --ring: 1 63% 45%;
+
+    --radius: 0.625rem;
+
+    --surface: 225 33% 97%;
+    --surface-low: 220 24% 96%;
+    --surface-mid: 220 18% 94%;
+    --surface-high: 220 14% 91%;
+    --surface-highest: 220 12% 88%;
+
+    --text: 216 18% 11%;
+    --text-soft: 222 12% 29%;
+    --text-muted: 222 6% 49%;
+
+    --shadow-sm: 0 1px 4px rgba(0,0,0,0.07);
+    --shadow-md: 0 4px 20px rgba(0,0,0,0.08);
+    --shadow-lg: 0 8px 32px rgba(0,0,0,0.10);
+    --shadow-red: 0 4px 16px hsl(1 63% 45% / 0.25);
+
+    --sidebar-background: 220 24% 96%;
+    --sidebar-foreground: 240 5% 26%;
+    --sidebar-primary: 1 63% 45%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 5% 96%;
+    --sidebar-accent-foreground: 240 6% 10%;
+    --sidebar-border: 229 17% 83% / 0.3;
+    --sidebar-ring: 1 63% 45%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: Arial, Helvetica, sans-serif;
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: hsl(var(--surface-highest)); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--border)); }
+
+/* Material Icons */
+.mi {
+  font-family: 'Material Symbols Outlined' !important;
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  font-size: inherit;
+  line-height: 1;
+  vertical-align: middle;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+}
+.mi.fill {
+  font-variation-settings: 'FILL' 1, 'wght' 500, 'GRAD' 0, 'opsz' 24;
+}
+
+/* Range input styling */
+input[type=range] {
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  border-radius: 3px;
+  background: hsl(var(--surface-highest));
+  outline: none;
+}
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: hsl(var(--primary));
+  cursor: pointer;
+  box-shadow: 0 1px 4px hsl(1 63% 45% / 0.4);
+}
+
+/* Toggle switch */
+.toggle-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 11px;
+  background: hsl(var(--surface-highest));
+  transition: all 0.18s ease;
+}
+.toggle-track::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: white;
+  transition: all 0.18s ease;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+input:checked + .toggle-track {
+  background: hsl(var(--primary));
+}
+input:checked + .toggle-track::after {
+  transform: translateX(18px);
+}
+
+.scenario-toolbar{
+  display:flex;
+  gap:10px;
+  margin-bottom:10px;
+}
+
+.scenario-btn{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  padding:8px 14px;
+  border:none;
+  border-radius:8px;
+  background:#2563eb;
+  color:white;
+  font-weight:500;
+  cursor:pointer;
+}
+
+.scenario-btn:hover{
+  background:#1d4ed8;
+}
+
+.material-symbols-outlined{
+  font-size:20px;
+}

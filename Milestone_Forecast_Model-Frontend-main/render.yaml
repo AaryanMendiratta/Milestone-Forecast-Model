@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: clinical-architect-api
+    runtime: python
+    rootDir: .
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: ALLOWED_ORIGINS
+        value: https://milestone-forecast-model-frontend-1qbd-be634b30x.vercel.app
+      - key: DATA_FILE
+        value: ace_data.json
+      - key: SUPABASE_URL
+        sync: false   # set manually in Render dashboard
+      - key: SUPABASE_SERVICE_KEY
+        sync: false   # set manually in Render dashboard
