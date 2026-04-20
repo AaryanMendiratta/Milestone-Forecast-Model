@@ -329,7 +329,7 @@ def monte_carlo_run(req: MonteCarloRunRequest):
     if not MONTE_CARLO_RUN_LOCK.acquire(blocking=False):
         raise HTTPException(
             status_code=409,
-            detail="Running on other system pease wait"
+            detail="Cannot fetch the request, as minte carlo is currently running on another system, try in some time"
         )
 
     try:

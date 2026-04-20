@@ -549,7 +549,7 @@ export default function MonteCarlo() {
       clearTrickle();
       if ((err?.message || '').includes('(409)')) {
         setRunProgress({ value: 0, stage: '' });
-        toast.error('Running on other system pease wait');
+        toast.error('Cannot fetch the request, as Monte Carlo is currently running on another system, try in some time');
         return;
       }
       // DB-backed flow failed — fall back to local simulation
