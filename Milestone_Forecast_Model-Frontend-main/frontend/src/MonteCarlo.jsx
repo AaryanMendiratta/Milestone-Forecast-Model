@@ -18,6 +18,7 @@ const OUTPUT_COLORS = [
 ];
 const MC_PAGE_SIZE = 1000;
 const MC_MAX_ROWS = 200000;
+const ALLOW_LOCAL_FALLBACK = !(import.meta.env.VITE_API_URL || '').trim();
 
 const keyToMetricId = {
   patientPopulation: 'population', // assuming same
@@ -517,6 +518,11 @@ export default function MonteCarlo() {
 
       // If DB returned no rows, fall back to local simulation
       if (Object.keys(perYearBuckets).length === 0) {
+        if (!ALLOW_LOCAL_FALLBACK) {
+          setRunProgress({ value: 0, stage: '' });
+          toast.error('Simulation results are not available from the server. Please try again.');
+          return;
+        }
         updateProgress(96, 'No DB rows found; running local simulation...');
         const results = runLocalSimulation(simulationsCount, effectiveMetricDists);
         setSimulationResults(results);
@@ -549,10 +555,15 @@ export default function MonteCarlo() {
       clearTrickle();
       if ((err?.message || '').includes('(409)')) {
         setRunProgress({ value: 0, stage: '' });
-        toast.error('Cannot fetch the request, as Monte Carlo is currently running on another system, try in some time');
+        toast.error('Cannot fetch the request, as monte carlo is currently running on another system, try in some time');
         return;
       }
-      // DB-backed flow failed — fall back to local simulation
+      if (!ALLOW_LOCAL_FALLBACK) {
+        setRunProgress({ value: 0, stage: '' });
+        toast.error('Monte Carlo run failed on the server. Please try again in some time.');
+        return;
+      }
+      // DB-backed flow failed in local/dev mode — fall back to local simulation
       toast(`Database unavailable, running local simulation…`);
       try {
         updateProgress(90, 'Database unavailable; running local simulation...');
