@@ -158,16 +158,28 @@ function buildHistogramFromSamples(values = []) {
 async function fetchRowsFromSupabase(runId, onProgress) {
   let rows = [];
   let pageCount = 0;
-  for (let from = 0; from < MC_MAX_ROWS; from += MC_PAGE_SIZE) {
+  let lastIteration = 0;
+  while (rows.length < MC_MAX_ROWS) {
     const { data, error } = await supabase
       .from('monte_carlo_iterations')
-      .select('total_output, outputs')
+      .select('iteration, total_output, outputs')
       .eq('run_id', runId)
-      .range(from, from + MC_PAGE_SIZE - 1);
+      .gt('iteration', lastIteration)
+      .order('iteration', { ascending: true })
+      .limit(MC_PAGE_SIZE);
     if (error) throw new Error(error.message);
     const batch = data || [];
+    if (batch.length === 0) {
+      onProgress?.({ rowsLoaded: rows.length, pageCount, done: true });
+      break;
+    }
     rows = rows.concat(batch);
     pageCount += 1;
+    const nextIteration = Number(batch[batch.length - 1]?.iteration);
+    if (!Number.isFinite(nextIteration) || nextIteration <= lastIteration) {
+      throw new Error('Failed to paginate Monte Carlo results by iteration.');
+    }
+    lastIteration = nextIteration;
     onProgress?.({ rowsLoaded: rows.length, pageCount, done: batch.length < MC_PAGE_SIZE });
     if (batch.length < MC_PAGE_SIZE) break;
   }
@@ -535,6 +547,11 @@ export default function MonteCarlo() {
       toast.success('Simulation complete — results updated');
     } catch (err) {
       clearTrickle();
+      if ((err?.message || '').includes('(409)')) {
+        setRunProgress({ value: 0, stage: '' });
+        toast.error('Another Monte Carlo run is already in progress. Please wait and retry.');
+        return;
+      }
       // DB-backed flow failed — fall back to local simulation
       toast(`Database unavailable, running local simulation…`);
       try {

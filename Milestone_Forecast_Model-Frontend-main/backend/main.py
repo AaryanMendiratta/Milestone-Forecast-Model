@@ -28,6 +28,7 @@ from typing import Any
 import json
 import os
 import uuid
+import threading
 
 try:
     from dotenv import load_dotenv
@@ -41,6 +42,7 @@ from .db import get_client
 from .monte_carlo import run_monte_carlo
 
 app = FastAPI(title="Clinical Architect API", version="1.0.0")
+MONTE_CARLO_RUN_LOCK = threading.Lock()
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Always allow localhost dev origins.
@@ -275,9 +277,8 @@ def monte_carlo_run(req: MonteCarloRunRequest):
     """
     DB-backed Monte Carlo simulation.
 
-    Clears all previous simulation data, runs the requested number of
-    iterations, writes every iteration to Supabase, and returns the run_id
-    so the frontend can fetch results directly from the database.
+    Creates a new simulation run, writes every iteration to Supabase, and
+    returns the run_id so the frontend can fetch only that run's results.
     
     IMPORTANT: metricDists should contain ONLY enabled metrics (those with
     "Include = Yes" on the Monte Carlo page). The frontend filters before sending.
@@ -325,6 +326,12 @@ def monte_carlo_run(req: MonteCarloRunRequest):
     except ImportError as exc:
         raise HTTPException(status_code=500, detail=f"monte_carlo_db module error: {exc}")
 
+    if not MONTE_CARLO_RUN_LOCK.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail="A Monte Carlo run is already in progress. Please wait for it to finish and retry."
+        )
+
     try:
         result = run_monte_carlo_db(
             simulations=req.simulations,
@@ -336,6 +343,7 @@ def monte_carlo_run(req: MonteCarloRunRequest):
             configured_metrics=req.configuredMetrics,
             metric_dists=req.metricDists,
             output_name=req.outputName,
+            clear_previous_runs=True,
         )
         logger.info(f"✓ MC run complete: run_id={result['run_id']}, iterations={result['simulations_count']}")
     except RuntimeError as exc:
@@ -346,6 +354,8 @@ def monte_carlo_run(req: MonteCarloRunRequest):
         logger.error(f"Error: {type(exc).__name__}: {exc}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
+    finally:
+        MONTE_CARLO_RUN_LOCK.release()
 
     return {"status": "ok", **result}
 
@@ -365,23 +375,36 @@ def monte_carlo_results(run_id: str):
     supabase = _get_supabase()
     rows: list[dict] = []
     page_size = 1000
-    offset = 0
+    last_iteration = 0
     max_rows = 200000
 
     while True:
         result = (
             supabase.table("monte_carlo_iterations")
-            .select("total_output, outputs")
+            .select("iteration,total_output,outputs")
             .eq("run_id", run_id)
-            .range(offset, offset + page_size - 1)
+            .gt("iteration", last_iteration)
+            .order("iteration")
+            .limit(page_size)
             .execute()
         )
         batch = result.data or []
-        rows.extend(batch)
-        if len(batch) < page_size:
+        if not batch:
             break
-        offset += page_size
-        if offset >= max_rows:
+        rows.extend(batch)
+        next_iteration = batch[-1].get("iteration")
+        if not isinstance(next_iteration, int):
+            try:
+                next_iteration = int(next_iteration)
+            except (TypeError, ValueError):
+                break
+        if next_iteration <= last_iteration:
+            break
+        last_iteration = next_iteration
+        if len(rows) >= max_rows:
+            rows = rows[:max_rows]
+            break
+        if len(batch) < page_size:
             break
 
     return {"status": "ok", "rows": rows}

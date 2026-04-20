@@ -108,7 +108,7 @@ export async function runMonteCarlo(payload) {
  * Run DB-backed Monte Carlo simulation on backend.
  *
  * The backend will:
- *   1. Clear all previous simulation data from Supabase.
+ *   1. Create a new Monte Carlo run record in Supabase.
  *   2. Run the requested number of iterations.
  *   3. Write every iteration row (temp_vars, outputs, total_output) to Supabase.
  *   4. Return a run_id that the frontend uses to query results.
