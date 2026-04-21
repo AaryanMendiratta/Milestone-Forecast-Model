@@ -281,7 +281,6 @@ def run_monte_carlo_db(
     configured_metrics: list,
     metric_dists: dict,
     output_name: str,
-    clear_previous_runs: bool = False,
 ) -> dict:
     """
     Run the Monte Carlo simulation and persist every iteration to Supabase.
@@ -297,7 +296,6 @@ def run_monte_carlo_db(
     configured_metrics: list of configured metric objects
     metric_dists      : per-metric distribution params  { metricId: { distType, minChange, maxChange, sd } }
     output_name       : name of the formula output to simulate
-    clear_previous_runs: delete all previous run records before starting a new run
 
     Returns
     -------
@@ -320,10 +318,9 @@ def run_monte_carlo_db(
         if mid not in known_ids:
             metrics_to_vary.append({"id": mid, "name": mid})
 
-    if clear_previous_runs:
-        sb.table("monte_carlo_runs").delete().neq(
-            "id", "00000000-0000-0000-0000-000000000000"
-        ).execute()
+    sb.table("monte_carlo_runs").delete().neq(
+        "id", "00000000-0000-0000-0000-000000000000"
+    ).execute()
 
     # ── Create a new run record ───────────────────────────────────────────────
     run_id = str(uuid_mod.uuid4())

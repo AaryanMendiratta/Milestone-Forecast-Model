@@ -28,8 +28,6 @@ from typing import Any
 import json
 import os
 import uuid
-import threading
-from datetime import datetime, timezone, timedelta
 
 try:
     from dotenv import load_dotenv
@@ -43,9 +41,6 @@ from .db import get_client
 from .monte_carlo import run_monte_carlo
 
 app = FastAPI(title="Clinical Architect API", version="1.0.0")
-MONTE_CARLO_RUN_LOCK = threading.Lock()
-MONTE_CARLO_DB_LOCK_ID = "00000000-0000-0000-0000-000000000000"
-MONTE_CARLO_DB_LOCK_STALE_MINUTES = int(os.environ.get("MONTE_CARLO_DB_LOCK_STALE_MINUTES", "120"))
 
 # ── CORS ──────────────────────────────────────────────────────────────────────
 # Always allow localhost dev origins.
@@ -329,21 +324,7 @@ def monte_carlo_run(req: MonteCarloRunRequest):
     except ImportError as exc:
         raise HTTPException(status_code=500, detail=f"monte_carlo_db module error: {exc}")
 
-    if not MONTE_CARLO_RUN_LOCK.acquire(blocking=False):
-        raise HTTPException(
-            status_code=409,
-            detail="Cannot fetch the request, as minte carlo is currently running on another system, try in some time"
-        )
-
-    db_lock_acquired = False
     try:
-        if not _acquire_monte_carlo_db_lock(logger):
-            raise HTTPException(
-                status_code=409,
-                detail="Cannot fetch the request, as minte carlo is currently running on another system, try in some time"
-            )
-        db_lock_acquired = True
-
         result = run_monte_carlo_db(
             simulations=req.simulations,
             metric_data=req.metricData,
@@ -354,11 +335,8 @@ def monte_carlo_run(req: MonteCarloRunRequest):
             configured_metrics=req.configuredMetrics,
             metric_dists=req.metricDists,
             output_name=req.outputName,
-            clear_previous_runs=True,
         )
         logger.info(f"✓ MC run complete: run_id={result['run_id']}, iterations={result['simulations_count']}")
-    except HTTPException:
-        raise
     except RuntimeError as exc:
         logger.error(f"Runtime error: {exc}")
         raise HTTPException(status_code=503, detail=str(exc))
@@ -367,10 +345,6 @@ def monte_carlo_run(req: MonteCarloRunRequest):
         logger.error(f"Error: {type(exc).__name__}: {exc}")
         logger.error(traceback.format_exc())
         raise HTTPException(status_code=500, detail=f"{type(exc).__name__}: {exc}")
-    finally:
-        if db_lock_acquired:
-            _release_monte_carlo_db_lock(logger)
-        MONTE_CARLO_RUN_LOCK.release()
 
     return {"status": "ok", **result}
 
@@ -382,72 +356,6 @@ def _get_supabase():
         return get_client()
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
-
-
-def _is_duplicate_key_error(exc: Exception) -> bool:
-    message = str(exc)
-    return "23505" in message or "duplicate key value violates unique constraint" in message
-
-
-def _parse_iso_datetime(value: str | None) -> datetime | None:
-    if not value:
-        return None
-    try:
-        return datetime.fromisoformat(value.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-
-
-def _acquire_monte_carlo_db_lock(logger) -> bool:
-    """
-    Acquire a cross-instance lock using a sentinel row in monte_carlo_runs.
-    This prevents concurrent runs across multiple backend processes/instances.
-    """
-    supabase = _get_supabase()
-    lock_row = {
-        "id": MONTE_CARLO_DB_LOCK_ID,
-        "simulation_count": 0,
-        "output_name": "__MONTE_CARLO_LOCK__",
-        "metric_configs": {"lock": True},
-    }
-
-    try:
-        supabase.table("monte_carlo_runs").insert(lock_row).execute()
-        return True
-    except Exception as exc:
-        if not _is_duplicate_key_error(exc):
-            raise
-
-        # If the lock appears stale (e.g., crash/redeploy mid-run), clear it.
-        try:
-            result = (
-                supabase.table("monte_carlo_runs")
-                .select("created_at")
-                .eq("id", MONTE_CARLO_DB_LOCK_ID)
-                .limit(1)
-                .execute()
-            )
-            row = (result.data or [None])[0]
-            created_at = _parse_iso_datetime((row or {}).get("created_at"))
-            if (
-                created_at
-                and datetime.now(timezone.utc) - created_at > timedelta(minutes=MONTE_CARLO_DB_LOCK_STALE_MINUTES)
-            ):
-                logger.warning("Detected stale Monte Carlo DB lock; clearing and retrying lock acquisition.")
-                supabase.table("monte_carlo_runs").delete().eq("id", MONTE_CARLO_DB_LOCK_ID).execute()
-                supabase.table("monte_carlo_runs").insert(lock_row).execute()
-                return True
-        except Exception as stale_exc:
-            logger.warning(f"Unable to inspect/clear stale Monte Carlo DB lock: {stale_exc}")
-
-        return False
-
-
-def _release_monte_carlo_db_lock(logger):
-    try:
-        _get_supabase().table("monte_carlo_runs").delete().eq("id", MONTE_CARLO_DB_LOCK_ID).execute()
-    except Exception as exc:
-        logger.warning(f"Failed to release Monte Carlo DB lock: {exc}")
 
 
 @app.get("/api/monte-carlo/results/{run_id}")
