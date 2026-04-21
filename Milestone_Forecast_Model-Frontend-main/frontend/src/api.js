@@ -158,3 +158,16 @@ export async function fetchMonteCarloResults(runId) {
   }
   return res.json();
 }
+
+/**
+ * Fetch latest Monte Carlo run metadata from backend.
+ * @returns {Promise<{ status: string, run: { id: string, created_at: string, simulation_count: number, output_name: string } | null }>}
+ */
+export async function fetchLatestMonteCarloRun() {
+  const res = await fetch(`${BASE_URL}/api/monte-carlo/latest-run`);
+  if (!res.ok) {
+    const err = await res.text().catch(() => res.statusText);
+    throw new Error(`Latest Monte Carlo run failed: ${err || res.statusText}`);
+  }
+  return res.json();
+}

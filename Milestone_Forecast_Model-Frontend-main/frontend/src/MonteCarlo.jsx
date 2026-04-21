@@ -9,7 +9,7 @@ import {
   computeLocalOutputs, generateAnnualPeriods, getAttributeCombinations,
   isPercentageOutput, computeAnnualTotals, formatSmartNumber,
 } from './calculationUtils.js';
-import { runMonteCarloRun, fetchMonteCarloResults } from './api.js';
+import { runMonteCarloRun, fetchMonteCarloResults, fetchLatestMonteCarloRun } from './api.js';
 import { supabase, supabaseReady } from './supabaseClient.js';
 
 const OUTPUT_COLORS = [
@@ -195,6 +195,58 @@ async function fetchRowsFromBackend(runId, onProgress) {
   const rows = result.rows || [];
   onProgress?.({ rowsLoaded: rows.length, pageCount: 1, done: true });
   return rows;
+}
+
+async function fetchRowsForRun(runId, onProgress) {
+  try {
+    if (supabaseReady && supabase) {
+      return await fetchRowsFromSupabase(runId, onProgress);
+    }
+    return await fetchRowsFromBackend(runId, onProgress);
+  } catch (primaryErr) {
+    if (supabaseReady && supabase) {
+      return await fetchRowsFromBackend(runId, onProgress);
+    }
+    throw primaryErr;
+  }
+}
+
+function buildResultsFromRows(rows = []) {
+  const perYearBuckets = {};
+  for (const row of rows) {
+    const yearTotals = {};
+    for (const [key, val] of Object.entries(row.outputs || {})) {
+      if (val === '' || val === null || val === undefined) continue;
+      const year = key.split('-').pop();
+      yearTotals[year] = (yearTotals[year] || 0) + Number(val);
+    }
+    for (const [year, total] of Object.entries(yearTotals)) {
+      if (!perYearBuckets[year]) perYearBuckets[year] = [];
+      perYearBuckets[year].push(total);
+    }
+  }
+
+  if (Object.keys(perYearBuckets).length === 0) return null;
+
+  const perYearPercentiles = {};
+  for (const [year, values] of Object.entries(perYearBuckets)) {
+    perYearPercentiles[year] = summarizeSamples(values);
+  }
+
+  const sortedYears = Object.keys(perYearBuckets).sort();
+  const lastYear = sortedYears[sortedYears.length - 1];
+  const revenueSamples = lastYear ? perYearBuckets[lastYear] : [];
+
+  return {
+    results: {
+      samples: [],
+      revenueSamples,
+      summary: summarizeSamples(revenueSamples),
+      perYearPercentiles,
+      runAt: Date.now(),
+    },
+    iterationCount: rows.length,
+  };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -453,6 +505,7 @@ export default function MonteCarlo() {
       const value = 82 + Math.min(12, Math.max(0, ratio * 12));
       updateProgress(value, 'Fetching simulation results...');
     };
+    const runRequestStartedAt = Date.now();
 
     try {
       updateProgress(10, 'Submitting Monte Carlo job...');
@@ -483,84 +536,57 @@ export default function MonteCarlo() {
       clearTrickle();
       updateProgress(82, 'Fetching simulation results...');
 
-      // 2. Fetch all iteration rows (Supabase directly if configured, otherwise via backend)
-      let rows = [];
-      try {
-        if (supabaseReady && supabase) {
-          rows = await fetchRowsFromSupabase(run_id, handleFetchProgress);
-        } else {
-          rows = await fetchRowsFromBackend(run_id, handleFetchProgress);
-        }
-      } catch (primaryErr) {
-        if (supabaseReady && supabase) {
-          rows = await fetchRowsFromBackend(run_id, handleFetchProgress);
-        } else {
-          throw primaryErr;
-        }
-      }
+      // 2. Fetch all iteration rows for this run
+      const rows = await fetchRowsForRun(run_id, handleFetchProgress);
       updateProgress(95, 'Computing percentile ranges...');
-
-      // 3. Build per-year buckets — for each iteration, sum all segment values for each year
-      const perYearBuckets = {};
-      for (const row of rows) {
-        const yearTotals = {};
-        for (const [key, val] of Object.entries(row.outputs || {})) {
-          if (val === '' || val === null || val === undefined) continue;
-          const year = key.split('-').pop();
-          yearTotals[year] = (yearTotals[year] || 0) + Number(val);
-        }
-        for (const [year, total] of Object.entries(yearTotals)) {
-          if (!perYearBuckets[year]) perYearBuckets[year] = [];
-          perYearBuckets[year].push(total);
-        }
-      }
-
-      // If DB returned no rows, fall back to local simulation
-      if (Object.keys(perYearBuckets).length === 0) {
-        updateProgress(96, 'No DB rows found; running local simulation...');
-        const results = runLocalSimulation(simulationsCount, effectiveMetricDists);
-        setSimulationResults(results);
-        localStorage.setItem('monteCarlo_simulationResults', JSON.stringify(results));
-        setHasRun(true);
-        setRunProgress({ value: 100, stage: 'Simulation complete' });
-        toast.success('Simulation complete — results updated (local)');
+      const built = buildResultsFromRows(rows);
+      if (!built) {
+        setRunProgress({ value: 0, stage: '' });
+        toast.error('Simulation ended before any server results were available.');
         return;
       }
-
-      const perYearPercentiles = {};
-      for (const [year, values] of Object.entries(perYearBuckets)) {
-        perYearPercentiles[year] = summarizeSamples(values);
-      }
-
-      // 4. revenueSamples = last forecast year's per-iteration totals
-      const sortedYears   = Object.keys(perYearBuckets).sort();
-      const lastYear      = sortedYears[sortedYears.length - 1];
-      const revenueSamples = lastYear ? perYearBuckets[lastYear] : [];
-
-      const summary = summarizeSamples(revenueSamples);
-      const results = { samples: [], revenueSamples, summary, perYearPercentiles, runAt: Date.now() };
-
+      const { results, iterationCount } = built;
       setSimulationResults(results);
       localStorage.setItem('monteCarlo_simulationResults', JSON.stringify(results));
       setHasRun(true);
       setRunProgress({ value: 100, stage: 'Simulation complete' });
-      toast.success('Simulation complete — results updated');
+      if (iterationCount < simulationsCount) {
+        toast.warning(`Simulation stopped early — showing ${iterationCount.toLocaleString()} completed iterations from server.`);
+      } else {
+        toast.success('Simulation complete — results updated');
+      }
     } catch (err) {
       clearTrickle();
-      // DB-backed flow failed — fall back to local simulation
-      toast(`Database unavailable, running local simulation…`);
+      if ((err?.message || '').includes('(409)')) {
+        setRunProgress({ value: 0, stage: '' });
+        toast.error('Cannot fetch the request, as minte carlo is currently running on another system, try in some time');
+        return;
+      }
       try {
-        updateProgress(90, 'Database unavailable; running local simulation...');
-        const results = runLocalSimulation(simulationsCount, effectiveMetricDists);
+        updateProgress(88, 'Run interrupted; loading completed server iterations...');
+        const latest = await fetchLatestMonteCarloRun();
+        const latestRunId = latest?.run?.id;
+        if (!latestRunId) throw new Error('No server run found.');
+        const latestCreatedMs = Date.parse(latest?.run?.created_at || '');
+        const isRecentRun = Number.isFinite(latestCreatedMs) ? latestCreatedMs >= (runRequestStartedAt - 60_000) : true;
+        const isSameOutput = !latest?.run?.output_name || latest.run.output_name === selectedOutput.outputName;
+        const isSameSimulationCount = !latest?.run?.simulation_count || Number(latest.run.simulation_count) === simulationsCount;
+        if (!isRecentRun || !isSameOutput || !isSameSimulationCount) {
+          throw new Error('No matching interrupted server run found.');
+        }
+        const rows = await fetchRowsForRun(latestRunId, handleFetchProgress);
+        const built = buildResultsFromRows(rows);
+        if (!built) throw new Error('No completed server iterations found.');
+        const { results, iterationCount } = built;
         setSimulationResults(results);
         localStorage.setItem('monteCarlo_simulationResults', JSON.stringify(results));
         setHasRun(true);
-        setRunProgress({ value: 100, stage: 'Simulation complete' });
-        toast.success('Simulation complete — results updated (local)');
-      } catch (localErr) {
+        setRunProgress({ value: 100, stage: 'Partial server results loaded' });
+        toast.warning(`Run interrupted — showing ${iterationCount.toLocaleString()} completed iterations from server.`);
+      } catch (partialErr) {
         setRunProgress({ value: 0, stage: '' });
-        toast.error(`Simulation failed: ${localErr.message}`);
-        setHasRun(true); // still mark as run so user sees the (empty) results panel
+        const detail = err?.message || partialErr?.message || 'Unknown error';
+        toast.error(`Simulation failed: ${detail}`);
       }
     } finally {
       clearTrickle();

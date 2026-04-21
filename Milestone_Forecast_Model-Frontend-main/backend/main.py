@@ -8,6 +8,7 @@ Endpoints:
   POST /api/calculate            — run formula calculations and return outputs
   POST /api/monte-carlo          — DEPRECATED: legacy in-memory Monte Carlo (do not use)
   POST /api/monte-carlo/run      — ACTIVE: DB-backed Monte Carlo with dynamic formulas ✅
+  GET  /api/monte-carlo/latest-run — latest Monte Carlo run metadata
   POST /api/scenarios/save       — save scenario to Supabase
   GET  /api/scenarios/list       — list all scenarios
   GET  /api/scenarios/{id}       — load specific scenario
@@ -397,6 +398,21 @@ def monte_carlo_results(run_id: str):
             break
 
     return {"status": "ok", "rows": rows}
+
+
+@app.get("/api/monte-carlo/latest-run")
+def monte_carlo_latest_run():
+    """Return the latest Monte Carlo run metadata."""
+    supabase = _get_supabase()
+    result = (
+        supabase.table("monte_carlo_runs")
+        .select("id,created_at,simulation_count,output_name")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    runs = result.data or []
+    return {"status": "ok", "run": runs[0] if runs else None}
 
 
 @app.post("/api/scenarios/save")
