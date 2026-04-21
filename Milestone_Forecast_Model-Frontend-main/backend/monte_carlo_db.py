@@ -15,6 +15,7 @@ Rows are inserted in batches of BATCH_SIZE for performance.
 """
 
 import math
+import os
 import random
 import uuid as uuid_mod
 from statistics import mean as _mean
@@ -23,7 +24,8 @@ from typing import Any
 from .calculator import run_calculations, get_attribute_combinations, generate_timeline, _to_float
 from .db import get_client
 
-BATCH_SIZE = 100
+BATCH_SIZE = max(50, int(os.environ.get("MC_DB_BATCH_SIZE", "250")))
+PERSIST_TEMP_VARS = os.environ.get("MC_PERSIST_TEMP_VARS", "false").strip().lower() in ("1", "true", "yes", "on")
 
 
 # ─── Sampling helpers ─────────────────────────────────────────────────────────
@@ -151,6 +153,7 @@ def _sample_metric_data(
     configured_metrics: list | None = None,
     segments: list | None = None,
     timeline: dict | None = None,
+    collect_temp_vars: bool = True,
 ) -> tuple[dict, dict]:
     """
     For every enabled metric, draw ONE random % change and apply it to every
@@ -188,7 +191,7 @@ def _sample_metric_data(
 
     for metric in metrics_to_vary:
         metric_id: str = metric.get("id", "")
-        metric_name: str = metric.get("name", metric_id)
+        metric_name: str = metric.get("name", metric_id) if collect_temp_vars else ""
         dist = metric_dists.get(metric_id) or default_dist
         metric_config = metric_configs.get(metric_id) or {}
         input_type = metric_config.get("inputType", "table")
@@ -232,8 +235,9 @@ def _sample_metric_data(
                     continue
                 sampled_val = max(0.0, _apply_change(base, pct, change_type))
                 sampled[key] = sampled_val
-                suffix = key[len(f"{metric_id}-"):]
-                temp_vars[f"temp_{metric_name} ({metric_id})-{suffix}"] = round(sampled_val, 6)
+                if collect_temp_vars:
+                    suffix = key[len(f"{metric_id}-"):]
+                    temp_vars[f"temp_{metric_name} ({metric_id})-{suffix}"] = round(sampled_val, 6)
 
             else:
                 # table / uptake-curve — vary each period independently using same pct
@@ -263,8 +267,9 @@ def _sample_metric_data(
                         continue
                     sampled_val = max(0.0, _apply_change(base, pct, change_type))
                     sampled[key] = sampled_val
-                    suffix = key[len(f"{metric_id}-"):]
-                    temp_vars[f"temp_{metric_name} ({metric_id})-{suffix}"] = round(sampled_val, 6)
+                    if collect_temp_vars:
+                        suffix = key[len(f"{metric_id}-"):]
+                        temp_vars[f"temp_{metric_name} ({metric_id})-{suffix}"] = round(sampled_val, 6)
 
     return sampled, temp_vars
 
@@ -369,6 +374,7 @@ def run_monte_carlo_db(
             configured_metrics=configured_metrics,
             segments=segments,
             timeline=annual_timeline,
+            collect_temp_vars=PERSIST_TEMP_VARS,
         )
 
         formula_outputs = run_calculations(
@@ -400,15 +406,15 @@ def run_monte_carlo_db(
             output_data = {}
             total_output = 0.0
 
-        batch.append(
-            {
-                "run_id": run_id,
-                "iteration": i,
-                "temp_vars": temp_vars,
-                "outputs": output_data,
-                "total_output": round(total_output, 4),
-            }
-        )
+        row = {
+            "run_id": run_id,
+            "iteration": i,
+            "outputs": output_data,
+            "total_output": round(total_output, 4),
+        }
+        if PERSIST_TEMP_VARS:
+            row["temp_vars"] = temp_vars
+        batch.append(row)
 
         if len(batch) >= BATCH_SIZE:
             sb.table("monte_carlo_iterations").insert(batch).execute()
